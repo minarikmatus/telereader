@@ -46,6 +46,35 @@ async def sync_commands():
     print('commands synced')
  
 
+#show bot setup
+@tree.command(
+    name = 'teleinfo',
+    description = 'Shows bot setup'
+)
+async def teleinfo(interaction: discord.Interaction):
+    if "telegram_token" not in config_json:
+        await interaction.response.send_message('Telegram account not linked', ephemeral=True)
+        return
+
+    telegram_token = config_json['telegram_token']
+
+    url='https://api.telegram.org/bot'+telegram_token+'/getMe'
+
+    try:
+        response = requests.get(url)
+
+        if response.status_code == 200:
+            # Parse the JSON string into a Python dictionary
+            data = json.loads(response.content)
+
+            username = data['result']['username']
+            await interaction.response.send_message('Linked to Telegram bot **@' + username + '**', ephemeral=True)
+        else:
+            await interaction.response.send_message('Issue with Telegram bot happened', ephemeral=True)
+    except Exception as e:
+        await interaction.response.send_message('There was an exception: ' + str(e), ephemeral=True)
+
+
 #link telegram account
 @tree.command(
     name = 'telelink',
@@ -65,7 +94,7 @@ async def telelink(interaction: discord.Interaction, telegram_token:str):
 
     try:
         response = requests.get(url)
-        # Check if the request was successful (status code 200)
+        
         if response.status_code == 200:
             config_json['telegram_token'] = telegram_token
 
@@ -109,8 +138,6 @@ async def telestop(interaction: discord.Interaction):
     else:
         message = 'Telegram account not linked'
         await interaction.response.send_message(message, ephemeral=True)
-
-
 
 @bot.event
 async def on_ready():
