@@ -52,11 +52,13 @@ async def sync_commands():
     description = 'Shows bot setup'
 )
 async def teleinfo(interaction: discord.Interaction):
-    if "telegram_token" not in config_json:
+    discord_id = str(interaction.guild.id)
+    
+    if discord_id not in config_json or "telegram_token" not in config_json[discord_id]:
         await interaction.response.send_message('Telegram account not linked', ephemeral=True)
         return
 
-    telegram_token = config_json['telegram_token']
+    telegram_token = config_json[discord_id]['telegram_token']
 
     url='https://api.telegram.org/bot'+telegram_token+'/getMe'
 
@@ -81,25 +83,28 @@ async def teleinfo(interaction: discord.Interaction):
     description = 'Links a Telegram account'
 )
 async def telelink(interaction: discord.Interaction, telegram_token:str):
-
+    discord_id = str(interaction.guild.id)
+    
     #check if Telegram is already setup
-    if "telegram_token" in config_json:
+    if discord_id in config_json and "telegram_token" in config_json[discord_id]:
         message = 'Telegram already connected. Use /telestop to remove the configuration.'
         await interaction.response.send_message(message, ephemeral=True)
         return None
-
 
     #validate token
     url='https://api.telegram.org/bot'+telegram_token+'/getMe'
 
     try:
         response = requests.get(url)
-        
+
         if response.status_code == 200:
-            config_json['telegram_token'] = telegram_token
+            if discord_id not in config_json:
+                config_json[discord_id] = {}
+
+            config_json[discord_id]['telegram_token'] = telegram_token
 
             with open(CONFIG_FILE, 'w') as f:
-                json.dump(config_json, f)
+                json.dump(config_json, f, indent=4)
 
             message = 'Telegram linked successfully'
             await interaction.response.send_message(message, ephemeral=True)
@@ -126,11 +131,17 @@ async def telelink(interaction: discord.Interaction, telegram_token:str):
     description = 'Removes linked Telegram account'
 )
 async def telestop(interaction: discord.Interaction):
-    if "telegram_token" in config_json:
-        config_json.pop("telegram_token")
+    discord_id = str(interaction.guild.id)
+
+    if discord_id in config_json and "telegram_token" in config_json[discord_id]:
+        config_json[discord_id].pop("telegram_token")
+
+        # Clean up if no tokens are left for this server
+        if not config_json[discord_id]:
+            del config_json[discord_id]
 
         with open(CONFIG_FILE, 'w') as f:
-            json.dump(config_json, f)
+            json.dump(config_json, f, indent=4)
 
         message = 'Telegram account unlinked'
         await interaction.response.send_message(message, ephemeral=True)
