@@ -39,12 +39,31 @@ except Exception as e:
 
 @tasks.loop(seconds=5)
 async def sync_commands():
-  global synced
-  if synced == 0:
-    await tree.sync()
-    synced = 1
-    print('commands synced')
+    global synced
+    if synced == 0:
+        await tree.sync()
+        synced = 1
+        print('commands synced')
  
+@tasks.loop(seconds=5)
+async def check_messages():
+    print('Checking for updates')
+
+    for server in config_json:
+        telegram_token = config_json[server]['telegram_token']
+    url = 'https://api.telegram.org/bot'+telegram_token+'/getUpdates'
+
+    try:
+        response = requests.get(url)
+
+        if response.status_code==200:
+            updates = json.loads(response.content)
+            # process all updates
+            # shift offset
+
+    except requests.exceptions.RequestException as e:
+        #TODO inform server about the issue
+        None
 
 #show bot setup
 @tree.command(
@@ -55,7 +74,7 @@ async def teleinfo(interaction: discord.Interaction):
     discord_id = str(interaction.guild.id)
     
     if discord_id not in config_json or "telegram_token" not in config_json[discord_id]:
-        await interaction.response.send_message('Telegram account not linked', ephemeral=True)
+        await interaction.response.send_message('Telegram bot account not linked', ephemeral=True)
         return
 
     telegram_token = config_json[discord_id]['telegram_token']
@@ -70,17 +89,18 @@ async def teleinfo(interaction: discord.Interaction):
             data = json.loads(response.content)
 
             username = data['result']['username']
-            await interaction.response.send_message('Linked to Telegram bot **@' + username + '**', ephemeral=True)
+            await interaction.response.send_message('Linked to Telegram bot account **@' + username + '**', ephemeral=True)
         else:
-            await interaction.response.send_message('Issue with Telegram bot happened', ephemeral=True)
+            await interaction.response.send_message('Issue with Telegram bot account happened (' + str(response.status_code) + ')', ephemeral=True)
+    
     except Exception as e:
         await interaction.response.send_message('There was an exception: ' + str(e), ephemeral=True)
 
 
-#link telegram account
+#link Telegram bot
 @tree.command(
     name = 'telelink',
-    description = 'Links a Telegram account'
+    description = 'Links a Telegram bot account'
 )
 async def telelink(interaction: discord.Interaction, telegram_token:str):
     discord_id = str(interaction.guild.id)
@@ -125,10 +145,10 @@ async def telelink(interaction: discord.Interaction, telegram_token:str):
         message = 'There was an exception: ' + str(e)
         await interaction.response.send_message(message, ephemeral=True)
 
-#unlink telegram account
+#unlink Telegram bot account
 @tree.command(
     name = 'telestop',
-    description = 'Removes linked Telegram account'
+    description = 'Removes linked Telegram bot account'
 )
 async def telestop(interaction: discord.Interaction):
     discord_id = str(interaction.guild.id)
@@ -143,16 +163,17 @@ async def telestop(interaction: discord.Interaction):
         with open(CONFIG_FILE, 'w') as f:
             json.dump(config_json, f, indent=4)
 
-        message = 'Telegram account unlinked'
+        message = 'Telegram bot account unlinked'
         await interaction.response.send_message(message, ephemeral=True)
 
     else:
-        message = 'Telegram account not linked'
+        message = 'Telegram bot account not linked'
         await interaction.response.send_message(message, ephemeral=True)
 
 @bot.event
 async def on_ready():
     sync_commands.start()
+    check_messages.start()
     print('Ready')
 
 bot.run(bot_token)
