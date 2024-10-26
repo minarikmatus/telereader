@@ -20,15 +20,14 @@ if not bot_token:
     )
     raise ValueError(message)
 
-
 intents = discord.Intents.default()
 bot = discord.Client(intents=intents)
 tree = discord.app_commands.CommandTree(bot)
 
-#flag if commands have been pushed to servers
+# flag if commands have been pushed to servers
 synced = 0
 
-#load config_json file
+# load config_json file
 try:
     with open(CONFIG_FILE, 'r') as f:
         config_json = json.load(f)
@@ -45,27 +44,75 @@ async def sync_commands():
         synced = 1
         print('commands synced')
  
-@tasks.loop(seconds=5)
+@tasks.loop(seconds=10)
 async def check_messages():
-    print('Checking for updates')
 
     for server in config_json:
-        telegram_token = config_json[server]['telegram_token']
-    url = 'https://api.telegram.org/bot'+telegram_token+'/getUpdates'
+        server_data = config_json[server]
+        telegram_token = server_data['telegram_token']
 
-    try:
-        response = requests.get(url)
+        target_channel_id = server_data['channel_id']
 
-        if response.status_code==200:
-            updates = json.loads(response.content)
+        url = 'https://api.telegram.org/bot'+telegram_token+'/getUpdates'
+
+        try:
+            response = requests.get(url)
+
+            if response.status_code == 200:
+                updates = json.loads(response.content)
+
+            update_id = 0
+
             # process all updates
+            for update in updates['result']:
+                update_id = update['update_id']
+
+                if 'message' in update:
+                    message = update['message']
+
+                    # only process messages from groups
+                    if message['chat']['type'] != 'group':
+                        continue
+
+                    message_text = message.get('text', '')
+                    message_caption = message.get('caption', '')
+                    if message_text == '' and message_caption == '':
+                        continue
+
+                    first_name = message['from'].get('first_name', '')
+                    last_name = message['from'].get('last_name', '')
+                    chat_title = message['chat'].get('title', '')
+
+                    # merge caption and text
+                    merged_text = ''
+                    if message_caption != '':
+                        merged_text =  '<image>\n' + message_caption + '\n'
+                    if message_text != '':
+                        merged_text += message_text
+                    if merged_text[-1] == '\n':
+                        merged_text = merged_text[:-1]
+
+                    # compose message
+                    discord_message = first_name + ' ' + last_name \
+                        + ' @ ' + chat_title + ':\n' \
+                        + '>>> ' + merged_text
+                    
+                    channel = bot.get_channel(target_channel_id)
+                    await channel.send(discord_message)
+
             # shift offset
+            offset = update_id + 1
+            url = 'https://api.telegram.org/bot' + telegram_token + '/getUpdates'
+            params = {'content-type': 'application/json'}
+            data = {'offset': str(offset) }
+            response = requests.get(url, params=params, data = data)
+            
+        except requests.exceptions.RequestException as e:
+            # TODO inform server about the issue
+            
+            None
 
-    except requests.exceptions.RequestException as e:
-        #TODO inform server about the issue
-        None
-
-#show bot setup
+# show bot setup
 @tree.command(
     name = 'teleinfo',
     description = 'Shows bot setup'
@@ -97,21 +144,29 @@ async def teleinfo(interaction: discord.Interaction):
         await interaction.response.send_message('There was an exception: ' + str(e), ephemeral=True)
 
 
-#link Telegram bot
+# link Telegram bot
 @tree.command(
     name = 'telelink',
     description = 'Links a Telegram bot account'
 )
-async def telelink(interaction: discord.Interaction, telegram_token:str):
+async def telelink(interaction: discord.Interaction, telegram_token:str, channel:discord.TextChannel=None):
     discord_id = str(interaction.guild.id)
     
-    #check if Telegram is already setup
+    # initialize channel
+    if channel == None:
+        channel = interaction.channel
+
+    if type(channel) != discord.TextChannel:
+        message = 'Failed to link, provide valid text channel'
+        await interaction.response.send_message(message, ephemeral=True)
+
+    # check if Telegram is already setup
     if discord_id in config_json and "telegram_token" in config_json[discord_id]:
         message = 'Telegram already connected. Use /telestop to remove the configuration.'
         await interaction.response.send_message(message, ephemeral=True)
         return None
 
-    #validate token
+    # validate token
     url='https://api.telegram.org/bot'+telegram_token+'/getMe'
 
     try:
@@ -122,6 +177,7 @@ async def telelink(interaction: discord.Interaction, telegram_token:str):
                 config_json[discord_id] = {}
 
             config_json[discord_id]['telegram_token'] = telegram_token
+            config_json[discord_id]['channel_id'] = channel.id
 
             with open(CONFIG_FILE, 'w') as f:
                 json.dump(config_json, f, indent=4)
@@ -134,8 +190,6 @@ async def telelink(interaction: discord.Interaction, telegram_token:str):
             await interaction.response.send_message(message, ephemeral=True)
 
         else:
-            print('Error:', response.status_code)
-
             message = 'There was an error: ' + str(response.status_code)
             await interaction.response.send_message(message, ephemeral=True)
 
@@ -145,7 +199,7 @@ async def telelink(interaction: discord.Interaction, telegram_token:str):
         message = 'There was an exception: ' + str(e)
         await interaction.response.send_message(message, ephemeral=True)
 
-#unlink Telegram bot account
+# unlink Telegram bot account
 @tree.command(
     name = 'telestop',
     description = 'Removes linked Telegram bot account'
@@ -153,12 +207,8 @@ async def telelink(interaction: discord.Interaction, telegram_token:str):
 async def telestop(interaction: discord.Interaction):
     discord_id = str(interaction.guild.id)
 
-    if discord_id in config_json and "telegram_token" in config_json[discord_id]:
-        config_json[discord_id].pop("telegram_token")
-
-        # Clean up if no tokens are left for this server
-        if not config_json[discord_id]:
-            del config_json[discord_id]
+    if discord_id in config_json:
+        del config_json[discord_id]
 
         with open(CONFIG_FILE, 'w') as f:
             json.dump(config_json, f, indent=4)
