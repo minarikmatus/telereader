@@ -36,6 +36,49 @@ except Exception as e:
     with open(CONFIG_FILE, 'w') as f:
         json.dump(config_json, f)
 
+def process_group_message(message:any) -> str:
+    message_text = message.get('text', '')
+    message_caption = message.get('caption', '')
+    if message_text == '' and message_caption == '':
+        return None
+
+    # merge caption and text
+    merged_text = ''
+    if message_caption != '':
+        merged_text =  '<image>\n' + message_caption + '\n'
+    if message_text != '':
+        merged_text += message_text
+    if merged_text[-1] == '\n':
+        merged_text = merged_text[:-1]
+
+    first_name = message['from'].get('first_name', '')
+    last_name = message['from'].get('last_name', '')
+    chat_title = message['chat'].get('title', '')
+
+    # compose message
+    discord_message = first_name + ' ' + last_name  + ' @ ' \
+        + chat_title + ':\n' \
+        + '>>> ' + merged_text
+    
+    return discord_message
+
+def process_channel_message(message:any) -> str:
+    message_text = message.get('text', '')
+   
+    author_signature = message.get('author_signature', '')
+    if author_signature:
+        author_text = author_signature + ' @ '
+    else:
+        author_text = ''
+
+    chat_title = message['chat'].get('title', '')
+
+    # compose message
+    discord_message = author_text + chat_title + ':\n' \
+        + '>>> ' + message_text
+    
+    return discord_message
+
 @tasks.loop(seconds=5)
 async def sync_commands():
     global synced
@@ -67,46 +110,30 @@ async def check_messages():
             # process all updates
             for update in updates['result']:
                 update_id = update['update_id']
-
-                if 'message' in update:
+                
+                # message from group
+                if 'message' in update and update['message']['chat']['type'] == 'group':
                     message = update['message']
+                    discord_message = process_group_message(message)
 
-                    # only process messages from groups
-                    if message['chat']['type'] != 'group':
-                        continue
+                # message from channel
+                if 'channel_post' in update:
+                    message = update['channel_post']
+                    discord_message = process_channel_message(message)
 
-                    message_text = message.get('text', '')
-                    message_caption = message.get('caption', '')
-                    if message_text == '' and message_caption == '':
-                        continue
-
-                    # merge caption and text
-                    merged_text = ''
-                    if message_caption != '':
-                        merged_text =  '<image>\n' + message_caption + '\n'
-                    if message_text != '':
-                        merged_text += message_text
-                    if merged_text[-1] == '\n':
-                        merged_text = merged_text[:-1]
-
-                    first_name = message['from'].get('first_name', '')
-                    last_name = message['from'].get('last_name', '')
-                    chat_title = message['chat'].get('title', '')
-
-                    # compose message
-                    discord_message = first_name + ' ' + last_name \
-                        + ' @ ' + chat_title + ':\n' \
-                        + '>>> ' + merged_text
-                    
-                    channel = bot.get_channel(target_channel_id)
-                    await channel.send(discord_message)
+                # if nothing is extracted lopp around
+                if message is None:
+                    continue
+                
+                channel = bot.get_channel(target_channel_id)
+                await channel.send(discord_message)
 
             # shift offset
             offset = update_id + 1
             url = 'https://api.telegram.org/bot' + telegram_token + '/getUpdates'
             params = {'content-type': 'application/json'}
             data = {'offset': str(offset) }
-            response = requests.get(url, params=params, data = data)
+            requests.get(url, params=params, data = data)
             
         except requests.exceptions.RequestException as e:
             # TODO inform server about the issue
