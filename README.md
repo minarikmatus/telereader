@@ -4,7 +4,7 @@ Discord bot to forward messages from Telegram groups to Discord channels.
 
 # Commands
 
-`/teleinfo` Shows linked Telegram bot name.
+`/teleinfo` Shows linked Telegram bot name and target channel.
 
 `/telelink telegram_token #channel` Links this bot with Telegram bot account and sets target channel for forwarded messages. If no channel is provided, links with current channel.
 

@@ -43,7 +43,8 @@ async def sync_commands():
         await tree.sync()
         synced = 1
         print('commands synced')
- 
+
+# check for updates and post
 @tasks.loop(seconds=10)
 async def check_messages():
 
@@ -53,7 +54,7 @@ async def check_messages():
 
         target_channel_id = server_data['channel_id']
 
-        url = 'https://api.telegram.org/bot'+telegram_token+'/getUpdates'
+        url = 'https://api.telegram.org/bot' + telegram_token + '/getUpdates'
 
         try:
             response = requests.get(url)
@@ -79,10 +80,6 @@ async def check_messages():
                     if message_text == '' and message_caption == '':
                         continue
 
-                    first_name = message['from'].get('first_name', '')
-                    last_name = message['from'].get('last_name', '')
-                    chat_title = message['chat'].get('title', '')
-
                     # merge caption and text
                     merged_text = ''
                     if message_caption != '':
@@ -91,6 +88,10 @@ async def check_messages():
                         merged_text += message_text
                     if merged_text[-1] == '\n':
                         merged_text = merged_text[:-1]
+
+                    first_name = message['from'].get('first_name', '')
+                    last_name = message['from'].get('last_name', '')
+                    chat_title = message['chat'].get('title', '')
 
                     # compose message
                     discord_message = first_name + ' ' + last_name \
@@ -119,15 +120,17 @@ async def check_messages():
 )
 async def teleinfo(interaction: discord.Interaction):
     discord_id = str(interaction.guild.id)
-    
-    if discord_id not in config_json or "telegram_token" not in config_json[discord_id]:
+    server_data = config_json[discord_id]
+
+    if discord_id not in config_json or "telegram_token" not in server_data:
         await interaction.response.send_message('Telegram bot account not linked', ephemeral=True)
         return
 
-    telegram_token = config_json[discord_id]['telegram_token']
+    telegram_token = server_data['telegram_token']
 
-    url='https://api.telegram.org/bot'+telegram_token+'/getMe'
-
+    channel_mention = bot.get_channel(server_data['channel_id']).mention
+    channel_text = 'Posting messages to channel ' + channel_mention
+    url='https://api.telegram.org/bot' + telegram_token + '/getMe'
     try:
         response = requests.get(url)
 
@@ -136,9 +139,13 @@ async def teleinfo(interaction: discord.Interaction):
             data = json.loads(response.content)
 
             username = data['result']['username']
-            await interaction.response.send_message('Linked to Telegram bot account **@' + username + '**', ephemeral=True)
+            tele_text = 'Linked to Telegram bot account **@' + username + '**'
         else:
-            await interaction.response.send_message('Issue with Telegram bot account happened (' + str(response.status_code) + ')', ephemeral=True)
+            tele_text = 'Issue with Telegram bot account happened (' + str(response.status_code) + ')'
+        
+        message = tele_text + '\n' \
+            + channel_text
+        await interaction.response.send_message(message, ephemeral=True)
     
     except Exception as e:
         await interaction.response.send_message('There was an exception: ' + str(e), ephemeral=True)
@@ -167,7 +174,7 @@ async def telelink(interaction: discord.Interaction, telegram_token:str, channel
         return None
 
     # validate token
-    url='https://api.telegram.org/bot'+telegram_token+'/getMe'
+    url='https://api.telegram.org/bot' + telegram_token + '/getMe'
 
     try:
         response = requests.get(url)
