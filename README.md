@@ -25,4 +25,5 @@ Discord bot to forward messages from Telegram groups or channels to Discord.
 
 # Discord setup
 
-1. Add this bot to Discord server and use /telelink command
+1. If self hosted: create .env with `DISCORD_TOKEN=your_token`
+2. Add this bot to Discord server and use /telelink command

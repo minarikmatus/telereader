@@ -36,6 +36,43 @@ except Exception as e:
     with open(CONFIG_FILE, 'w') as f:
         json.dump(config_json, f)
 
+
+# move identifier of first message
+def shift_offset(token:str, update_id:int) -> None:
+    offset = update_id + 1
+    url = 'https://api.telegram.org/bot' + token + '/getUpdates'
+    params = {'content-type': 'application/json'}
+    data = {'offset':str(offset)}
+    requests.get(url, params=params, data = data)
+            
+
+def parse_messages(content:bytes):
+    updates = json.loads(content)
+
+    update_id = 0
+    messages = []       # output variable
+
+    # process all updates
+    for update in updates['result']:
+        update_id = update['update_id']
+        
+        # message from group
+        if 'message' in update and update['message']['chat']['type'] == 'group':
+            discord_message = process_group_message(update['message'])
+        # message from channel
+        elif 'channel_post' in update:
+            discord_message = process_channel_message(update['channel_post'])
+
+        # if nothing is extracted lopp around
+        if discord_message is None:
+            continue
+        else:
+            messages.append(discord_message)
+
+    return messages, update_id
+
+
+# get text from group udpate
 def process_group_message(message:any) -> str:
     message_text = message.get('text', '')
     message_caption = message.get('caption', '')
@@ -62,6 +99,8 @@ def process_group_message(message:any) -> str:
     
     return discord_message
 
+
+# get text from channel udpate
 def process_channel_message(message:any) -> str:
     message_text = message.get('text', '')
    
@@ -79,6 +118,8 @@ def process_channel_message(message:any) -> str:
     
     return discord_message
 
+
+# sync command definitions to servers
 @tasks.loop(seconds=5)
 async def sync_commands():
     global synced
@@ -87,15 +128,23 @@ async def sync_commands():
         synced = 1
         print('commands synced')
 
+
 # check for updates and post
 @tasks.loop(seconds=10)
 async def check_messages():
 
-    for server in config_json:
-        server_data = config_json[server]
-        telegram_token = server_data['telegram_token']
+    # get list of servers to each token
+    token_dict = {}
 
-        target_channel_id = server_data['channel_id']
+    for server_id, info in config_json.items():
+        token = info['telegram_token']
+        
+        if token not in token_dict:
+            token_dict[token] = []
+        
+        token_dict[token].append(server_id)
+
+    for telegram_token in token_dict.keys():
 
         url = 'https://api.telegram.org/bot' + telegram_token + '/getUpdates'
 
@@ -103,42 +152,21 @@ async def check_messages():
             response = requests.get(url)
 
             if response.status_code == 200:
-                updates = json.loads(response.content)
+                messages, update_id = parse_messages(response.content)
 
-            update_id = 0
+            shift_offset(telegram_token, update_id)
 
-            # process all updates
-            for update in updates['result']:
-                update_id = update['update_id']
-                
-                # message from group
-                if 'message' in update and update['message']['chat']['type'] == 'group':
-                    message = update['message']
-                    discord_message = process_group_message(message)
+        except requests.exceptions.RequestException as e:
+            # TODO inform servers about the issue
+            None
 
-                # message from channel
-                if 'channel_post' in update:
-                    message = update['channel_post']
-                    discord_message = process_channel_message(message)
-
-                # if nothing is extracted lopp around
-                if message is None:
-                    continue
-                
-                channel = bot.get_channel(target_channel_id)
+        # send all new messages to all subscribed servers
+        for discord_message in messages:
+            for server_id in token_dict[telegram_token]:
+                channel_id = config_json[server_id]['channel_id']
+                channel = bot.get_channel(channel_id)
                 await channel.send(discord_message)
 
-            # shift offset
-            offset = update_id + 1
-            url = 'https://api.telegram.org/bot' + telegram_token + '/getUpdates'
-            params = {'content-type': 'application/json'}
-            data = {'offset': str(offset) }
-            requests.get(url, params=params, data = data)
-            
-        except requests.exceptions.RequestException as e:
-            # TODO inform server about the issue
-            
-            None
 
 # show bot setup
 @tree.command(
@@ -157,7 +185,7 @@ async def teleinfo(interaction: discord.Interaction):
 
     channel_mention = bot.get_channel(server_data['channel_id']).mention
     channel_text = 'Posting messages to channel ' + channel_mention
-    url='https://api.telegram.org/bot' + telegram_token + '/getMe'
+    url = 'https://api.telegram.org/bot' + telegram_token + '/getMe'
     try:
         response = requests.get(url)
 
