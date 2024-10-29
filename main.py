@@ -175,12 +175,12 @@ async def check_messages():
 )
 async def teleinfo(interaction: discord.Interaction):
     discord_id = str(interaction.guild.id)
-    server_data = config_json[discord_id]
 
-    if discord_id not in config_json or "telegram_token" not in server_data:
+    if discord_id not in config_json or "telegram_token" not in config_json[discord_id]:
         await interaction.response.send_message('Telegram bot account not linked', ephemeral=True)
         return
 
+    server_data = config_json[discord_id]
     telegram_token = server_data['telegram_token']
 
     channel_mention = bot.get_channel(server_data['channel_id']).mention
@@ -229,7 +229,7 @@ async def telelink(interaction: discord.Interaction, telegram_token:str, channel
         return None
 
     # validate token
-    url='https://api.telegram.org/bot' + telegram_token + '/getMe'
+    url = 'https://api.telegram.org/bot' + telegram_token + '/getMe'
 
     try:
         response = requests.get(url)
@@ -238,6 +238,7 @@ async def telelink(interaction: discord.Interaction, telegram_token:str, channel
             if discord_id not in config_json:
                 config_json[discord_id] = {}
 
+            # save updated configuration
             config_json[discord_id]['telegram_token'] = telegram_token
             config_json[discord_id]['channel_id'] = channel.id
 
@@ -246,6 +247,15 @@ async def telelink(interaction: discord.Interaction, telegram_token:str, channel
 
             message = 'Telegram linked successfully'
             await interaction.response.send_message(message, ephemeral=True)
+
+            # flush outstanding updates to prevent message flooding
+            url = 'https://api.telegram.org/bot' + telegram_token + '/getUpdates'
+            response = requests.get(url)
+
+            if response.status_code == 200:
+                messages_flush, update_id = parse_messages(response.content)
+
+            shift_offset(telegram_token, update_id)
 
         elif response.status_code == 404:
             message = 'Invalid token, please provide valid Telegram token.'
@@ -260,6 +270,7 @@ async def telelink(interaction: discord.Interaction, telegram_token:str, channel
         # Handle any network-related errors or exceptions
         message = 'There was an exception: ' + str(e)
         await interaction.response.send_message(message, ephemeral=True)
+
 
 # unlink Telegram bot account
 @tree.command(
@@ -281,6 +292,7 @@ async def telestop(interaction: discord.Interaction):
     else:
         message = 'Telegram bot account not linked'
         await interaction.response.send_message(message, ephemeral=True)
+
 
 @bot.event
 async def on_ready():
