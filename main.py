@@ -41,9 +41,9 @@ except Exception as e:
 def shift_offset(token:str, update_id:int) -> None:
     offset = update_id + 1
     url = 'https://api.telegram.org/bot' + token + '/getUpdates'
-    params = {'content-type': 'application/json'}
-    data = {'offset':str(offset)}
-    requests.get(url, params=params, data = data)
+    #params = {'content-type': 'application/json'}
+    params = {'offset':str(offset)}
+    requests.get(url, params=params)
             
 
 def parse_messages(content:bytes):
@@ -53,9 +53,9 @@ def parse_messages(content:bytes):
     messages = []       # output variable
 
     # process all updates
-    for update in updates['result']:
+    for update in updates.get('result'):
         update_id = update['update_id']
-        
+
         # message from group
         if 'message' in update and update['message']['chat']['type'] == 'group':
             discord_message = process_group_message(update['message'])
@@ -153,8 +153,7 @@ async def check_messages():
 
             if response.status_code == 200:
                 messages, update_id = parse_messages(response.content)
-
-            shift_offset(telegram_token, update_id)
+                shift_offset(telegram_token, update_id)
 
         except requests.exceptions.RequestException as e:
             # TODO inform servers about the issue
@@ -250,12 +249,13 @@ async def telelink(interaction: discord.Interaction, telegram_token:str, channel
 
             # flush outstanding updates to prevent message flooding
             url = 'https://api.telegram.org/bot' + telegram_token + '/getUpdates'
-            response = requests.get(url)
+            response_flush = requests.get(url)
 
-            if response.status_code == 200:
-                messages_flush, update_id = parse_messages(response.content)
-
-            shift_offset(telegram_token, update_id)
+            if response_flush.status_code == 200:
+                messages_flush, update_id = parse_messages(response_flush.content)
+                shift_offset(telegram_token, update_id)
+            else:
+                message = 'Could not flush previous messages'
 
         elif response.status_code == 404:
             message = 'Invalid token, please provide valid Telegram token.'
