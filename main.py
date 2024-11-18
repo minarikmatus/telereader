@@ -58,18 +58,39 @@ def parse_messages(content:bytes):
 
         # message from group
         if 'message' in update and update['message']['chat']['type'] == 'group':
-            discord_message = process_group_message(update['message'])
+            chat_title, discord_message = process_group_message(update['message'])
+            message = {'chat_title':chat_title, 'discord_message': discord_message}
         # message from channel
         elif 'channel_post' in update:
-            discord_message = process_channel_message(update['channel_post'])
+            chat_title, discord_message = process_channel_message(update['channel_post'])
+            message = {'chat_title':chat_title, 'discord_message': discord_message}
 
         # if nothing is extracted lopp around
-        if discord_message is None:
+        if message is None:
             continue
         else:
-            messages.append(discord_message)
+            messages.append(message)
 
     return messages, update_id
+
+
+# get text from channel udpate
+def process_channel_message(message:any) -> str:
+    message_text = message.get('text', '')
+   
+    author_signature = message.get('author_signature', '')
+    if author_signature:
+        author_text = author_signature + ' @ '
+    else:
+        author_text = ''
+
+    chat_title = message['chat'].get('title', '')
+
+    # compose message
+    discord_message = author_text + chat_title + ':\n' \
+        + '>>> ' + message_text
+    
+    return chat_title, discord_message
 
 
 # get text from group udpate
@@ -97,26 +118,7 @@ def process_group_message(message:any) -> str:
         + chat_title + ':\n' \
         + '>>> ' + merged_text
     
-    return discord_message
-
-
-# get text from channel udpate
-def process_channel_message(message:any) -> str:
-    message_text = message.get('text', '')
-   
-    author_signature = message.get('author_signature', '')
-    if author_signature:
-        author_text = author_signature + ' @ '
-    else:
-        author_text = ''
-
-    chat_title = message['chat'].get('title', '')
-
-    # compose message
-    discord_message = author_text + chat_title + ':\n' \
-        + '>>> ' + message_text
-    
-    return discord_message
+    return chat_title, discord_message
 
 
 # sync command definitions to servers
@@ -133,9 +135,10 @@ async def sync_commands():
 @tasks.loop(seconds=10)
 async def check_messages():
 
-    # get list of servers to each token
+    # get list of servers for each token
     token_dict = {}
 
+    
     for server_id, info in config_json.items():
         token = info['telegram_token']
         
@@ -160,11 +163,18 @@ async def check_messages():
             None
 
         # send all new messages to all subscribed servers
-        for discord_message in messages:
+        for message in messages:
             for server_id in token_dict[telegram_token]:
-                channel_id = config_json[server_id]['channel_id']
-                channel = bot.get_channel(channel_id)
-                await channel.send(discord_message)
+                # if subscribed, send message
+                if message['chat_title'] in config_json[server_id]['subscriptions']:
+                    channel_id = config_json[server_id]['channel_id']
+                    channel = bot.get_channel(channel_id)
+                    await channel.send(message['discord_message'])
+
+                # if not subscribed, store chat name to chats
+                elif message['chat_title'] not in config_json[server_id]['chats']:
+                    config_json[server_id]['chats'].append(message['chat_title'])
+                    save_config(config_json)
 
 
 # show bot setup
@@ -205,6 +215,12 @@ async def teleinfo(interaction: discord.Interaction):
         await interaction.response.send_message('There was an exception: ' + str(e), ephemeral=True)
 
 
+# store updated configutation to local storage
+def save_config(config_json):
+    with open(CONFIG_FILE, 'w') as f:
+        json.dump(config_json, f, indent=4)
+
+
 # link Telegram bot
 @tree.command(
     name = 'telelink',
@@ -240,9 +256,10 @@ async def telelink(interaction: discord.Interaction, telegram_token:str, channel
             # save updated configuration
             config_json[discord_id]['telegram_token'] = telegram_token
             config_json[discord_id]['channel_id'] = channel.id
+            config_json[discord_id]['chats'] = []
+            config_json[discord_id]['subscriptions'] = []
 
-            with open(CONFIG_FILE, 'w') as f:
-                json.dump(config_json, f, indent=4)
+            save_config(config_json)
 
             message = 'Telegram linked successfully'
             await interaction.response.send_message(message, ephemeral=True)
@@ -272,6 +289,65 @@ async def telelink(interaction: discord.Interaction, telegram_token:str, channel
         await interaction.response.send_message(message, ephemeral=True)
 
 
+# list available chats
+@tree.command(
+    name = 'telelist',
+    description = 'Lists available Telegram chats'
+)
+async def telelist(interaction: discord.Interaction):
+    discord_id = str(interaction.guild.id)
+
+    # split chats to subscribed and available
+    subscribed = ''
+    available = ''
+    for chat in config_json[discord_id]['chats']:
+        if chat in config_json[discord_id]['subscriptions']:
+            subscribed += chat + '\n'
+        else:
+            available += chat + '\n'
+
+    if subscribed == '':
+        subscribed_text = 'No subscribed chats'
+    else:
+        subscribed_text = 'Subscribed chats:\n```' + subscribed + '```'
+
+    if available == '':
+        available_text = 'No available chats'
+    else:
+        available_text = 'Available chats:\n```' + available + '```'
+
+    message = subscribed_text + '\n' + available_text + '\n' \
+        'To change status use /telesub `chat_title`'
+    
+    await interaction.response.send_message(message, ephemeral=True)
+
+
+# change subscription to a chat
+@tree.command(
+    name = 'telesub',
+    description = 'Change subscription to a Telegram chat'
+)
+async def telesub(interaction: discord.Interaction, chat_title:str):
+    discord_id = str(interaction.guild.id)
+
+    if chat_title in config_json[discord_id]['chats']:
+        if chat_title in config_json[discord_id]['subscriptions']:
+            config_json[discord_id]['subscriptions'].remove(chat_title)
+            message = 'Unsubscribed from ' + chat_title
+
+        else:
+            config_json[discord_id]['subscriptions'].append(chat_title)
+            message = 'Subscribed to ' + chat_title
+
+        save_config(config_json)
+
+    # chat not in the lists
+    else:
+        message = 'Unknown chat'
+    
+    await interaction.response.send_message(message, ephemeral=True)
+
+
 # unlink Telegram bot account
 @tree.command(
     name = 'telestop',
@@ -282,16 +358,14 @@ async def telestop(interaction: discord.Interaction):
 
     if discord_id in config_json:
         del config_json[discord_id]
-
-        with open(CONFIG_FILE, 'w') as f:
-            json.dump(config_json, f, indent=4)
+        save_config(config_json)
 
         message = 'Telegram bot account unlinked'
-        await interaction.response.send_message(message, ephemeral=True)
 
     else:
         message = 'Telegram bot account not linked'
-        await interaction.response.send_message(message, ephemeral=True)
+    
+    await interaction.response.send_message(message, ephemeral=True)
 
 
 @bot.event
