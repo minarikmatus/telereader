@@ -56,6 +56,8 @@ def parse_messages(content:bytes):
     for update in updates.get('result'):
         update_id = update['update_id']
 
+        message = None
+
         # message from group
         if 'message' in update and update['message']['chat']['type'] == 'group':
             chat_title, discord_message = process_group_message(update['message'])
@@ -180,7 +182,7 @@ async def check_messages():
 # show bot setup
 @tree.command(
     name = 'teleinfo',
-    description = 'Shows bot setup'
+    description = 'Show bot setup'
 )
 async def teleinfo(interaction: discord.Interaction):
     discord_id = str(interaction.guild.id)
@@ -224,7 +226,7 @@ def save_config(config_json):
 # link Telegram bot
 @tree.command(
     name = 'telelink',
-    description = 'Links a Telegram bot account'
+    description = 'Link a Telegram bot account'
 )
 async def telelink(interaction: discord.Interaction, telegram_token:str, channel:discord.TextChannel=None):
     discord_id = str(interaction.guild.id)
@@ -239,7 +241,7 @@ async def telelink(interaction: discord.Interaction, telegram_token:str, channel
 
     # check if Telegram is already setup
     if discord_id in config_json and "telegram_token" in config_json[discord_id]:
-        message = 'Telegram already connected. Use /telestop to remove the configuration.'
+        message = 'Telegram bot already connected. Use /telestop to remove the configuration.'
         await interaction.response.send_message(message, ephemeral=True)
         return None
 
@@ -261,7 +263,7 @@ async def telelink(interaction: discord.Interaction, telegram_token:str, channel
 
             save_config(config_json)
 
-            message = 'Telegram linked successfully'
+            message = 'Telegram bot linked successfully'
             await interaction.response.send_message(message, ephemeral=True)
 
             # flush outstanding updates to prevent message flooding
@@ -292,10 +294,15 @@ async def telelink(interaction: discord.Interaction, telegram_token:str, channel
 # list available chats
 @tree.command(
     name = 'telelist',
-    description = 'Lists available Telegram chats'
+    description = 'List available Telegram chats'
 )
 async def telelist(interaction: discord.Interaction):
     discord_id = str(interaction.guild.id)
+
+    if discord_id not in config_json:
+        message = 'Telegram bot account not linked'
+        await interaction.response.send_message(message, ephemeral=True)
+        return
 
     # split chats to subscribed and available
     subscribed = ''
@@ -325,11 +332,16 @@ async def telelist(interaction: discord.Interaction):
 # change subscription to a chat
 @tree.command(
     name = 'telesub',
-    description = 'Change subscription to a Telegram chat'
+    description = 'Subscribe to or unsubscribe from a Telegram chat'
 )
 async def telesub(interaction: discord.Interaction, chat_title:str):
     discord_id = str(interaction.guild.id)
 
+    if discord_id not in config_json:
+        message = 'Telegram bot account not linked'
+        await interaction.response.send_message(message, ephemeral=True)
+        return
+    
     if chat_title in config_json[discord_id]['chats']:
         if chat_title in config_json[discord_id]['subscriptions']:
             config_json[discord_id]['subscriptions'].remove(chat_title)
@@ -337,7 +349,7 @@ async def telesub(interaction: discord.Interaction, chat_title:str):
 
         else:
             config_json[discord_id]['subscriptions'].append(chat_title)
-            message = 'Subscribed to ' + chat_title
+            message = 'Subscribed to `' + chat_title + '`'
 
         save_config(config_json)
 
@@ -351,7 +363,7 @@ async def telesub(interaction: discord.Interaction, chat_title:str):
 # unlink Telegram bot account
 @tree.command(
     name = 'telestop',
-    description = 'Removes linked Telegram bot account'
+    description = 'Remove linked Telegram bot account'
 )
 async def telestop(interaction: discord.Interaction):
     discord_id = str(interaction.guild.id)
