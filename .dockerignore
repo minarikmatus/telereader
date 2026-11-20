@@ -1,0 +1,6 @@
+.git
+.env
+config.json
+servers.dump
+__pycache__
+*.pyc
