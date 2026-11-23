@@ -31,3 +31,12 @@ Discord bot to forward messages from Telegram groups or channels to Discord.
 
 1. If self hosted: create .env file with `DISCORD_TOKEN=your_token`
 2. Add this bot to Discord server and use /telelink command
+
+## Docker
+
+```sh
+docker build -t telereader:latest .
+docker run --rm --env-file .env -v "$PWD/data:/data" -w /data telereader:latest
+```
+
+The image runs as UID 1000 (for the Kubernetes PSA `restricted` policy).
